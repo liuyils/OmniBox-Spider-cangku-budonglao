@@ -946,7 +946,7 @@ async function search(params) {
     }
 
     // 使用容灾请求
-    const searchPath = `/vodsearch/-------------.html?wd=${keyword}`;
+    const searchPath = `/index.php/vod/search.html?wd=${keyword}`;
     const { response, baseUrl } = await requestWithFailover(searchPath);
 
     if (response.statusCode !== 200 || !response.body) {
