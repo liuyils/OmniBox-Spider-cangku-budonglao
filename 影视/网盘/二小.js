@@ -1,4 +1,10 @@
-// @name 玩偶系模板
+// @name 二小
+// @author 
+// @description 刮削：支持，弹幕：支持，嗅探：支持
+// @dependencies: axios, cheerio
+// @version 1.0.0
+// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/网盘/二小.js
+
 // 引入 OmniBox SDK
 const OmniBox = require("omnibox_sdk");
 // 引入 cheerio(用于 HTML 解析)
@@ -24,7 +30,7 @@ const WEB_SITES = WEB_SITE_CONFIG.split(';').map(url => url.trim()).filter(url =
 // 筛选配置: 环境变量 -> 本地文件 -> 远程链接
 const FILTERS_PATH_REMOTE = "https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/blob/main/%E9%85%8D%E7%BD%AE/%E7%AD%9B%E9%80%89/erxiao.json";
 const FILTERS_PATH_LOCAL = "/app/static/js/erxiao.json";
-const FILTERS_WOGG = process.env.FILTERS_WOGG || (fs.existsSync(FILTERS_PATH_LOCAL)
+const FILTERS = process.env.FILTERS_WOGG || (fs.existsSync(FILTERS_PATH_LOCAL)
   ? fs.readFileSync(FILTERS_PATH_LOCAL, "utf-8")
   : FILTERS_PATH_REMOTE);
 // 读取环境变量:支持多个网盘类型,用分号分割
@@ -136,7 +142,7 @@ function getBaseUrl() {
 }
 
 async function getDynamicFilters() {
-  const config = FILTERS_WOGG;
+  const config = FILTERS;
   const defaultFilters = {};
 
   if (config) {
@@ -201,6 +207,30 @@ let autoFiltersCache = {
   data: null,
   expiresAt: 0,
 };
+
+function normalizeFilterValueItem(item) {
+  if (!item) return null;
+  const name = String(item.n || item.name || "").trim();
+  const value = String(item.v ?? item.value ?? "").trim();
+  if (!name && !value) return null;
+  return { name, value };
+}
+
+function normalizeFilterGroup(group) {
+  if (!group) return null;
+  const key = String(group.key || "").trim();
+  const name = String(group.n || group.name || "").trim();
+  const valuesRaw = Array.isArray(group.v) ? group.v : (Array.isArray(group.value) ? group.value : []);
+  const values = valuesRaw.map(normalizeFilterValueItem).filter(Boolean);
+  if (!key || values.length === 0) return null;
+
+  return {
+    key,
+    name: name || FILTER_KEY_NAME_MAP[key] || key,
+    init: String(group.init ?? ""),
+    value: values,
+  };
+}
 
 function extractFilterKeyFromHref(href = "") {
   if (!href) return null;
@@ -281,6 +311,20 @@ async function getAutoFiltersByCategory(categoryId) {
   }
 }
 
+function normalizeStaticFilters(rawFilters) {
+  const result = {};
+  if (!rawFilters || typeof rawFilters !== "object") return result;
+
+  for (const typeId of Object.keys(rawFilters)) {
+    const groups = Array.isArray(rawFilters[typeId]) ? rawFilters[typeId] : [];
+    const normalizedGroups = groups.map(normalizeFilterGroup).filter(Boolean);
+    if (normalizedGroups.length > 0) {
+      result[typeId] = normalizedGroups;
+    }
+  }
+  return result;
+}
+
 async function getPreferredFilters(classes = []) {
   const now = Date.now();
   if (autoFiltersCache.data && now < autoFiltersCache.expiresAt) {
@@ -297,7 +341,7 @@ async function getPreferredFilters(classes = []) {
     }
   }
 
-  const staticFilters = (await getDynamicFilters()) || {};
+  const staticFilters = normalizeStaticFilters(await getDynamicFilters());
   const merged = {
     ...staticFilters,
     ...autoFilters,
@@ -430,8 +474,6 @@ async function home(params) {
           const typeId = $item.attr("data-id");
           const typeName = $item.attr("data-name");
 
-
-        OmniBox.log("info", `typeId ${typeId} typeName ${typeName}`);
           if (typeId && typeId !== "0" && typeName) {
             classes.push({
               type_id: typeId,
@@ -631,7 +673,7 @@ function buildScrapedFileName(scrapeData, mapping, originalFileName) {
 /**
  * 获取视频详情
  */
-async function detail(params) {
+async function detail(params, context) {
   try {
     const videoId = params.videoId || "";
 
@@ -692,7 +734,7 @@ async function detail(params) {
       }
     }
 
-    OmniBox.log("info", `解析完成,找到 ${panUrls.length} 个网盘链接`);
+    OmniBox.log("info", `解析完成,找到网盘链接： ${JSON.stringify(panUrls)}`);
 
     const playSources = [];
 
@@ -727,7 +769,7 @@ async function detail(params) {
           return null;
         }
 
-        OmniBox.log("info", `获取文件列表成功,文件数量: ${fileList.files.length}`);
+        OmniBox.log("info", `从分享链接 ${shareURL} 获取文件列表成功,文件数量: ${fileList.files.length}`);
 
         const allVideoFiles = await getAllVideoFiles(shareURL, fileList.files, "0");
 
@@ -739,10 +781,6 @@ async function detail(params) {
         OmniBox.log("info", `递归获取视频文件完成,视频文件数量: ${allVideoFiles.length}`);
 
         // 刮削处理
-        let scrapingSuccess = false;
-        // 以视频ID作为刮削资源ID，保证同一条目下刮削结果稳定复用
-        const sourceId = `spider_source_${await OmniBox.getSourceId()}_${videoId}`;
-
         try {
           OmniBox.log("info", `开始执行刮削处理,资源名: ${vodName}, 视频文件数: ${allVideoFiles.length}`);
 
@@ -758,7 +796,7 @@ async function detail(params) {
 
           OmniBox.log("info", `文件ID格式转换完成,示例: ${videoFilesForScraping[0]?.fid || "N/A"}`);
 
-          const scrapingResult = await OmniBox.processScraping(sourceId, vodName, vodName, videoFilesForScraping);
+          const scrapingResult = await OmniBox.processDriveScraping(shareURL, vodName, vodName, videoFilesForScraping);
           OmniBox.log("info", `刮削处理完成,结果: ${JSON.stringify(scrapingResult).substring(0, 200)}`);
           scrapingSuccess = true;
         } catch (error) {
@@ -774,8 +812,8 @@ async function detail(params) {
         let scrapeType = "";
 
         try {
-          OmniBox.log("info", `开始获取元数据,resourceId: ${sourceId}`);
-          const metadata = await OmniBox.getScrapeMetadata(sourceId);
+          OmniBox.log("info", `开始获取元数据,shareURL: ${shareURL}`);
+          const metadata = await OmniBox.getDriveMetadata(shareURL);
           OmniBox.log("info", `获取元数据响应: ${JSON.stringify(metadata).substring(0, 500)}`);
 
           scrapeData = metadata.scrapeData || null;
@@ -801,8 +839,7 @@ async function detail(params) {
           allVideoFiles,
           scrapeData,
           videoMappings,
-          scrapeType,
-          sourceId
+          scrapeType
         };
 
       } catch (error) {
@@ -847,6 +884,8 @@ async function detail(params) {
 
           const formattedFileId = fileId ? `${shareURL}|${fileId}` : "";
 
+          OmniBox.log("info",formattedFileId)
+
           let matchedMapping = null;
           if (scrapeData && videoMappings && Array.isArray(videoMappings) && videoMappings.length > 0) {
             for (const mapping of videoMappings) {
@@ -857,7 +896,6 @@ async function detail(params) {
                   fileName = newFileName;
                   OmniBox.log("info", `应用刮削文件名: ${file.file_name} -> ${fileName}`);
                 }
-                break;
               }
             }
           }
@@ -1087,7 +1125,7 @@ async function search(params) {
   }
 }
 
-async function play(params) {
+async function play(params, context) {
   try {
     const flag = params.flag || "";
     const playId = params.playId || "";
@@ -1119,19 +1157,7 @@ async function play(params) {
     let episodeName = params.episodeName || "";
 
     try {
-      // 优先使用视频ID维度读取刮削元数据，与 detail 阶段保持一致
-      const sourceIdByVod = params.vodId
-        ? `spider_source_${await OmniBox.getSourceId()}_${params.vodId}`
-        : "";
-      const sourceIdByShare = `spider_source_${await OmniBox.getSourceId()}_${shareURL}`;
-
-      let metadata = null;
-      if (sourceIdByVod) {
-        metadata = await OmniBox.getScrapeMetadata(sourceIdByVod);
-      }
-      if (!metadata || (!metadata.scrapeData && !metadata.videoMappings)) {
-        metadata = await OmniBox.getScrapeMetadata(sourceIdByShare);
-      }
+      let metadata = await OmniBox.getDriveMetadata(shareURL);
 
       if (metadata && metadata.scrapeData && metadata.videoMappings) {
         const formattedFileId = fileId ? `${shareURL}|${fileId}` : "";
@@ -1200,7 +1226,7 @@ async function play(params) {
     }
 
     try {
-      const sourceId = await OmniBox.getSourceId();
+      const sourceId = context.sourceId;
       if (sourceId) {
         const vodId = params.vodId || shareURL;
         const title = params.title || scrapeTitle || shareURL;
