@@ -2,7 +2,7 @@
 // @author @PFR001, @lucky_TJQ
 // @description 刮削：支持，弹幕：支持，嗅探：支持
 // @dependencies: axios, cheerio
-// @version 1.2.2
+// @version 1.2.3
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/在线之家.js
 
 /**
@@ -109,13 +109,13 @@ const fixUrl = (url) => {
  */
 const processImageUrl = (imageUrl, baseURL = "", referer = "") => {
     if (!imageUrl) return '';
-    
+
     // 标准化 URL
     let url = fixUrl(imageUrl);
-    
+
     // 检查是否是外部 URL（不是当前 host 的 URL）
     const isExternalUrl = !url.includes(host) && url.startsWith('http');
-    
+
     // 如果是外部 URL 且有 baseURL，则通过代理
     if (isExternalUrl && baseURL) {
         try {
@@ -129,7 +129,7 @@ const processImageUrl = (imageUrl, baseURL = "", referer = "") => {
                     finalReferer = host;
                 }
             }
-            
+
             // 构建带 headers 的 URL 格式: url@Referer=value
             const urlWithHeaders = `${url}@Referer=${finalReferer}`;
             // 编码 URL 参数
@@ -141,7 +141,7 @@ const processImageUrl = (imageUrl, baseURL = "", referer = "") => {
             return url;
         }
     }
-    
+
     return url;
 };
 
@@ -167,7 +167,7 @@ const requestHtml = async (url, options = {}) => {
 
 // ========== 解密算法 ==========
 const DecryptTools = {
-    decrypt: function(encryptedData) {
+    decrypt: function (encryptedData) {
         try {
             // 1. 翻转字符串
             const reversed = encryptedData.split('').reverse().join('');
@@ -337,28 +337,28 @@ const sniffZxzjPlay = async (playUrl) => {
  */
 function extractEpisode(title) {
     if (!title) return "";
-    
+
     const processedTitle = title.trim();
-    
+
     // 1. S01E03 格式
     const seMatch = processedTitle.match(/[Ss](?:\d{1,2})?[-._\s]*[Ee](\d{1,3})/i);
     if (seMatch) return seMatch[1];
-    
+
     // 2. 中文格式：第XX集/话
     const cnMatch = processedTitle.match(/第\s*([0-9]+)\s*[集话章节回期]/);
     if (cnMatch) return cnMatch[1];
-    
+
     // 3. EP/E 格式
     const epMatch = processedTitle.match(/\b(?:EP|E)[-._\s]*(\d{1,3})\b/i);
     if (epMatch) return epMatch[1];
-    
+
     // 4. 括号格式 [03]
     const bracketMatch = processedTitle.match(/[\[\(【（](\d{1,3})[\]\)】）]/);
     if (bracketMatch) {
         const num = bracketMatch[1];
         if (!["720", "1080", "480"].includes(num)) return num;
     }
-    
+
     return "";
 }
 
@@ -367,12 +367,12 @@ function extractEpisode(title) {
  */
 function buildFileNameForDanmu(vodName, episodeTitle) {
     if (!vodName) return "";
-    
+
     // 如果没有集数信息，直接返回视频名（电影）
     if (!episodeTitle || episodeTitle === '正片' || episodeTitle === '播放') {
         return vodName;
     }
-    
+
     // 提取集数
     const digits = extractEpisode(episodeTitle);
     if (digits) {
@@ -386,7 +386,7 @@ function buildFileNameForDanmu(vodName, episodeTitle) {
             }
         }
     }
-    
+
     // 无法提取集数，返回视频名
     return vodName;
 }
@@ -430,10 +430,10 @@ async function matchDanmu(fileName) {
     if (!DANMU_API || !fileName) {
         return [];
     }
-    
+
     try {
         logInfo(`匹配弹幕: ${fileName}`);
-        
+
         const matchUrl = `${DANMU_API}/api/v2/match`;
         const response = await OmniBox.request(matchUrl, {
             method: "POST",
@@ -443,36 +443,36 @@ async function matchDanmu(fileName) {
             },
             body: JSON.stringify({ fileName: fileName }),
         });
-        
+
         if (response.statusCode !== 200) {
             logInfo(`弹幕匹配失败: HTTP ${response.statusCode}`);
             return [];
         }
-        
+
         const matchData = JSON.parse(response.body);
-        
+
         // 检查是否匹配成功
         if (!matchData.isMatched) {
             logInfo("弹幕未匹配到");
             return [];
         }
-        
+
         // 获取matches数组
         const matches = matchData.matches || [];
         if (matches.length === 0) {
             return [];
         }
-        
+
         // 取第一个匹配项
         const firstMatch = matches[0];
         const episodeId = firstMatch.episodeId;
         const animeTitle = firstMatch.animeTitle || "";
         const episodeTitle = firstMatch.episodeTitle || "";
-        
+
         if (!episodeId) {
             return [];
         }
-        
+
         // 构建弹幕名称
         let danmakuName = "弹幕";
         if (animeTitle && episodeTitle) {
@@ -482,12 +482,12 @@ async function matchDanmu(fileName) {
         } else if (episodeTitle) {
             danmakuName = episodeTitle;
         }
-        
+
         // 构建弹幕URL
         const danmakuURL = `${DANMU_API}/api/v2/comment/${episodeId}?format=xml`;
-        
+
         logInfo(`弹幕匹配成功: ${danmakuName}`);
-        
+
         return [
             {
                 name: danmakuName,
@@ -514,26 +514,26 @@ const parseVideoList = ($, baseURL = "") => {
         const $item = $(element);
         const $link = $item.find('a.stui-vodlist__thumb, a.v-thumb, a.public-list-exp');
         if ($link.length === 0) return;
-        
+
         const title = $link.attr('title') || $item.find('.title a').text().trim();
         const href = $link.attr('href');
         let pic = $link.attr('data-original') || $link.attr('data-src') || $link.attr('src');
-        
+
         // 处理背景图样式
         if (!pic) {
             const style = $link.attr('style') || '';
             const match = style.match(/url\((['"]?)(.*?)\1\)/);
             if (match) pic = match[2];
         }
-        
+
         const remarks = $item.find('.pic-text, .v-remarks, .public-list-prb').text().trim();
-        
+
         if (title && href) {
-            list.push({ 
-                vod_id: href, 
-                vod_name: title, 
-                vod_pic: processImageUrl(pic, baseURL), 
-                vod_remarks: remarks || '' 
+            list.push({
+                vod_id: href,
+                vod_name: title,
+                vod_pic: processImageUrl(pic, baseURL),
+                vod_remarks: remarks || ''
             });
         }
     });
@@ -547,16 +547,23 @@ const parseVideoList = ($, baseURL = "") => {
  */
 async function home(params, context) {
     logInfo("进入首页");
+
+    const baseURL = context?.baseURL || "";
+    const url = `${host}`;
+    const html = await requestHtml(url);
+    const $ = cheerio.load(html || "");
+    const list = parseVideoList($, baseURL);
+
+    logInfo(`获取到 ${list.length} 个视频`);
     return {
-        class: [
+        list: list, class: [
             { type_id: '1', type_name: '电影' },
             { type_id: '2', type_name: '美剧' },
             { type_id: '3', type_name: '韩剧' },
             { type_id: '4', type_name: '日剧' },
             { type_id: '5', type_name: '泰剧' },
             { type_id: '6', type_name: '动漫' }
-        ],
-        list: []
+        ]
     };
 }
 
@@ -568,13 +575,13 @@ async function category(params, context) {
     const pg = parseInt(page) || 1;
     const baseURL = context?.baseURL || "";
     logInfo(`请求分类: ${categoryId}, 页码: ${pg}`);
-    
+
     try {
         const url = `${host}/vodshow/${categoryId}--------${pg}---.html`;
         const html = await requestHtml(url);
         const $ = cheerio.load(html || "");
         const list = parseVideoList($, baseURL);
-        
+
         logInfo(`获取到 ${list.length} 个视频`);
         return { list: list, page: pg, pagecount: list.length >= 12 ? pg + 1 : pg };
     } catch (e) {
@@ -591,13 +598,13 @@ async function search(params, context) {
     const pg = parseInt(params.page) || 1;
     const baseURL = context?.baseURL || "";
     logInfo(`搜索关键词: ${wd}, 页码: ${pg}`);
-    
+
     try {
         const url = `${host}/vodsearch/${encodeURIComponent(wd)}----------${pg}---.html`;
         const html = await requestHtml(url);
         const $ = cheerio.load(html || "");
         const list = parseVideoList($, baseURL);
-        
+
         logInfo(`搜索到 ${list.length} 个结果`);
         return { list: list, page: pg, pagecount: list.length >= 20 ? pg + 1 : pg };
     } catch (e) {
@@ -614,19 +621,19 @@ async function detail(params, context) {
     const url = fixUrl(videoId);
     const baseURL = context?.baseURL || "";
     logInfo(`请求详情 ID: ${videoId}`);
-    
+
     try {
         const html = await requestHtml(url);
         const $ = cheerio.load(html);
-        
+
         // 兼容多种详情页布局
         const title = $('h1.title').text().trim() || $('.stui-content__detail .title').text().trim() || $('title').text().split('-')[0].trim();
         let pic = $('.stui-content__thumb img').attr('data-original') || $('.stui-content__thumb img').attr('src') || '';
         const desc = $('.stui-content__detail .desc').text().trim() || $('meta[name="description"]').attr('content') || '';
-        
+
         // 处理图片 URL
         pic = processImageUrl(pic, baseURL);
-        
+
         const playSources = [];
         const $playlists = $(".stui-content__playlist, .stui-pannel__data ul, .playlist");
 
@@ -889,7 +896,7 @@ async function play(params) {
         const videoIdFromParam = params.vodId ? String(params.vodId) : "";
         const videoIdFromMeta = playMeta?.sid ? String(playMeta.sid) : "";
         const videoIdForScrape = videoIdFromParam || videoIdFromMeta;
-        
+
         if (videoIdForScrape) {
             const metadata = await OmniBox.getScrapeMetadata(videoIdForScrape);
             if (metadata && metadata.scrapeData) {
@@ -974,11 +981,11 @@ async function play(params) {
 
         // 2. 提取中间页 URL
         const urlMatch = html.match(/"url"\s*:\s*"(https:[^"]*?jx\.zxzj[^"]*?)"/);
-        
+
         if (urlMatch && urlMatch[1]) {
             const targetUrl = urlMatch[1].replace(/\\/g, '');
             logInfo(`提取中间页 URL: ${targetUrl}`);
-            
+
             // 3. 构造严格匹配的 Headers (关键!)
             const sniffHeaders = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -992,41 +999,41 @@ async function play(params) {
             // 4. 请求中间页获取源码
             try {
                 const iframeHtml = await requestHtml(targetUrl, { headers: sniffHeaders });
-                
+
                 // 5. 提取 result_v2 并解密
                 const v2Match = iframeHtml.match(/var\s+result_v2\s*=\s*(\{[\s\S]*?\});/);
                 if (v2Match && v2Match[1]) {
                     const v2Json = JSON.parse(v2Match[1]);
                     const encryptedData = v2Json.data || v2Json.url;
-                    
+
                     if (encryptedData) {
                         const decrypted = DecryptTools.decrypt(encryptedData);
                         if (decrypted && decrypted.startsWith("http")) {
                             logInfo(`解密成功: ${decrypted.substring(0, 50)}...`);
-                            
+
                             // 弹幕匹配
                             let danmakuList = [];
                             if (DANMU_API && (vodName || params.vodName)) {
                                 const finalVodName = vodName || params.vodName;
                                 const finalEpisodeName = episodeName || params.episodeName || '';
                                 const fileName = scrapedDanmuFileName || buildFileNameForDanmu(finalVodName, finalEpisodeName);
-                                
+
                                 logInfo(`尝试匹配弹幕文件名: ${fileName}`);
                                 if (fileName) {
                                     danmakuList = await matchDanmu(fileName);
                                 }
                             }
-                            
+
                             const result = {
                                 urls: [{ name: "极速直连", url: decrypted }],
                                 parse: 0,
                                 header: sniffHeaders
                             };
-                            
+
                             if (danmakuList && danmakuList.length > 0) {
                                 result.danmaku = danmakuList;
                             }
-                            
+
                             return result;
                         }
                     }
@@ -1044,7 +1051,7 @@ async function play(params) {
                     const finalVodName = vodName || params.vodName;
                     const finalEpisodeName = episodeName || params.episodeName || '';
                     const fileName = scrapedDanmuFileName || buildFileNameForDanmu(finalVodName, finalEpisodeName);
-                    
+
                     logInfo(`尝试匹配弹幕文件名: ${fileName}`);
                     if (fileName) {
                         const danmakuList = await matchDanmu(fileName);
