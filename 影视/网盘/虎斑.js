@@ -2,7 +2,7 @@
 // @author 
 // @description 刮削：支持，弹幕：支持，嗅探：支持
 // @dependencies: axios, cheerio
-// @version 1.0.2
+// @version 1.0.3
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/网盘/虎斑.js
 
 // 引入 OmniBox SDK
@@ -27,12 +27,6 @@ const fs = require("fs");
 // 网站地址(可以通过环境变量配置,支持多个域名用;分割)
 const WEB_SITE_CONFIG = process.env.WEB_SITE_HUBAN || "http://154.222.27.33:20720;http://xhban.xyz:20720;http://103.45.162.207:20720;";
 const WEB_SITES = WEB_SITE_CONFIG.split(';').map(url => url.trim()).filter(url => url);
-// 筛选配置: 环境变量 -> 本地文件 -> 远程链接
-const FILTERS_PATH_REMOTE = "https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/blob/main/%E9%85%8D%E7%BD%AE/%E7%AD%9B%E9%80%89/huban.json";
-const FILTERS_PATH_LOCAL = "/app/static/js/huban.json";
-const FILTERS = process.env.FILTERS_HUBAN || (fs.existsSync(FILTERS_PATH_LOCAL)
-  ? fs.readFileSync(FILTERS_PATH_LOCAL, "utf-8")
-  : FILTERS_PATH_REMOTE);
 // 读取环境变量:支持多个网盘类型,用分号分割
 const DRIVE_TYPE_CONFIG = (process.env.DRIVE_TYPE_CONFIG || "quark;uc").split(';').map(t => t.trim()).filter(t => t);
 // 读取环境变量:线路名称和顺序,用分号分割
@@ -139,51 +133,6 @@ async function requestWithFailover(path, options = {}) {
 
 function getBaseUrl() {
   return removeTrailingSlash(WEB_SITES[0]);
-}
-
-async function getDynamicFilters() {
-  const config = FILTERS;
-  const defaultFilters = {};
-
-  if (config) {
-    if (config.startsWith('http')) {
-      try {
-        OmniBox.log("info", `正在从远程链接读取过滤器: ${config}`);
-        const response = await httpRequest(config, {
-          method: "GET",
-          headers: {
-            "Accept": "application/json; charset=utf-8"
-          }
-        });
-        if (response.statusCode === 200 && response.body) {
-          const rawFilters = JSON.parse(response.body);
-
-          const formattedFilters = {};
-          for (const typeId in rawFilters) {
-            formattedFilters[typeId] = rawFilters[typeId].map(group => ({
-              key: group.key,
-              name: group.n || group.name,
-              init: group.init,
-              value: (group.v || group.value || []).map(item => ({
-                name: item.n || item.name,
-                value: item.v || item.value
-              }))
-            }));
-          }
-          return formattedFilters;
-        }
-      } catch (error) {
-        OmniBox.log("error", `远程过滤器读取失败: ${error.message}`);
-      }
-    } else {
-      try {
-        return JSON.parse(config);
-      } catch (error) {
-        OmniBox.log("error", `解析环境变量 FILTERS_WOGG 失败: ${error.message}`);
-      }
-    }
-  }
-  return defaultFilters;
 }
 
 function removeTrailingSlash(url) {
@@ -331,26 +280,30 @@ async function getPreferredFilters(classes = []) {
     return autoFiltersCache.data;
   }
 
-  const autoFilters = {};
-  for (const cls of classes) {
-    const typeId = String(cls?.type_id || "").trim();
-    if (!typeId) continue;
-    const groups = await getAutoFiltersByCategory(typeId);
-    if (groups.length > 0) {
-      autoFilters[typeId] = groups;
-    }
-  }
-
   const staticFilters = normalizeStaticFilters(await getDynamicFilters());
-  const merged = {
-    ...staticFilters,
-    ...autoFilters,
-  };
 
-  if (Object.keys(autoFilters).length > 0) {
-    OmniBox.log("info", `自动提取筛选成功: ${Object.keys(autoFilters).length} 个分类，优先覆盖静态配置`);
+  let merged = staticFilters;
+
+  // 静态配置为空时才执行自动抓取
+  if (Object.keys(staticFilters).length === 0) {
+    const autoFilters = {};
+    for (const cls of classes) {
+      const typeId = String(cls?.type_id || "").trim();
+      if (!typeId) continue;
+      const groups = await getAutoFiltersByCategory(typeId);
+      if (groups.length > 0) {
+        autoFilters[typeId] = groups;
+      }
+    }
+
+    if (Object.keys(autoFilters).length > 0) {
+      OmniBox.log("info", `静态配置为空，自动提取筛选成功: ${Object.keys(autoFilters).length} 个分类`);
+      merged = autoFilters;
+    } else {
+      OmniBox.log("warn", "静态配置和自动提取筛选均为空");
+    }
   } else {
-    OmniBox.log("warn", "自动提取筛选为空，回退到原有静态筛选逻辑");
+    OmniBox.log("info", `使用静态配置筛选: ${Object.keys(staticFilters).length} 个分类`);
   }
 
   autoFiltersCache = {
@@ -484,7 +437,7 @@ async function home(params) {
 
         OmniBox.log("info", `从首页导航提取到 ${classes.length} 个分类`);
 
-        const firstModule = $(".module").first();
+        const firstModule = $(".module");
 
         if (firstModule.length > 0) {
           const moduleItems = firstModule.find(".module-item");
@@ -884,7 +837,7 @@ async function detail(params, context) {
 
           const formattedFileId = fileId ? `${shareURL}|${fileId}` : "";
 
-          OmniBox.log("info",formattedFileId)
+          OmniBox.log("info", formattedFileId)
 
           let matchedMapping = null;
           if (scrapeData && videoMappings && Array.isArray(videoMappings) && videoMappings.length > 0) {
@@ -1282,6 +1235,1490 @@ async function play(params, context) {
       danmaku: [],
     };
   }
+}
+
+async function getDynamicFilters() {
+  return {
+    "1": [
+      {
+        "key": "year",
+        "name": "时间",
+        "init": "",
+        "value": [
+          {
+            "name": "全部时间",
+            "value": ""
+          },
+          {
+            "name": "2026",
+            "value": "2026"
+          },
+          {
+            "name": "2025",
+            "value": "2025"
+          },
+          {
+            "name": "2024",
+            "value": "2024"
+          },
+          {
+            "name": "2023",
+            "value": "2023"
+          },
+          {
+            "name": "2022",
+            "value": "2022"
+          },
+          {
+            "name": "2021",
+            "value": "2021"
+          },
+          {
+            "name": "2020",
+            "value": "2020"
+          },
+          {
+            "name": "2019",
+            "value": "2019"
+          },
+          {
+            "name": "2018",
+            "value": "2018"
+          },
+          {
+            "name": "2017",
+            "value": "2017"
+          },
+          {
+            "name": "2016",
+            "value": "2016"
+          },
+          {
+            "name": "2015",
+            "value": "2015"
+          },
+          {
+            "name": "2014",
+            "value": "2014"
+          },
+          {
+            "name": "2013",
+            "value": "2013"
+          },
+          {
+            "name": "2012",
+            "value": "2012"
+          },
+          {
+            "name": "2011",
+            "value": "2011"
+          },
+          {
+            "name": "2010",
+            "value": "2010"
+          },
+          {
+            "name": "2009",
+            "value": "2009"
+          },
+          {
+            "name": "2008",
+            "value": "2008"
+          },
+          {
+            "name": "2006",
+            "value": "2006"
+          },
+          {
+            "name": "2005",
+            "value": "2005"
+          },
+          {
+            "name": "2004",
+            "value": "2004"
+          }
+        ]
+      },
+      {
+        "key": "letter",
+        "name": "字母",
+        "init": "",
+        "value": [
+          {
+            "name": "字母查找",
+            "value": ""
+          },
+          {
+            "name": "A",
+            "value": "A"
+          },
+          {
+            "name": "B",
+            "value": "B"
+          },
+          {
+            "name": "C",
+            "value": "C"
+          },
+          {
+            "name": "D",
+            "value": "D"
+          },
+          {
+            "name": "E",
+            "value": "E"
+          },
+          {
+            "name": "F",
+            "value": "F"
+          },
+          {
+            "name": "G",
+            "value": "G"
+          },
+          {
+            "name": "H",
+            "value": "H"
+          },
+          {
+            "name": "I",
+            "value": "I"
+          },
+          {
+            "name": "J",
+            "value": "J"
+          },
+          {
+            "name": "K",
+            "value": "K"
+          },
+          {
+            "name": "L",
+            "value": "L"
+          },
+          {
+            "name": "M",
+            "value": "M"
+          },
+          {
+            "name": "name",
+            "value": "name"
+          },
+          {
+            "name": "O",
+            "value": "O"
+          },
+          {
+            "name": "P",
+            "value": "P"
+          },
+          {
+            "name": "Q",
+            "value": "Q"
+          },
+          {
+            "name": "R",
+            "value": "R"
+          },
+          {
+            "name": "S",
+            "value": "S"
+          },
+          {
+            "name": "T",
+            "value": "T"
+          },
+          {
+            "name": "U",
+            "value": "U"
+          },
+          {
+            "name": "value",
+            "value": "value"
+          },
+          {
+            "name": "W",
+            "value": "W"
+          },
+          {
+            "name": "X",
+            "value": "X"
+          },
+          {
+            "name": "Y",
+            "value": "Y"
+          },
+          {
+            "name": "Z",
+            "value": "Z"
+          },
+          {
+            "name": "0-9",
+            "value": "0-9"
+          }
+        ]
+      },
+      {
+        "key": "sort",
+        "name": "排序",
+        "init": "",
+        "value": [
+          {
+            "name": "时间排序",
+            "value": ""
+          },
+          {
+            "name": "人气排序",
+            "value": "hits"
+          },
+          {
+            "name": "评分排序",
+            "value": "score"
+          }
+        ]
+      }
+    ],
+    "2": [
+      {
+        "key": "year",
+        "name": "时间",
+        "init": "",
+        "value": [
+          {
+            "name": "全部时间",
+            "value": ""
+          },
+          {
+            "name": "2026",
+            "value": "2026"
+          },
+          {
+            "name": "2025",
+            "value": "2025"
+          },
+          {
+            "name": "2024",
+            "value": "2024"
+          },
+          {
+            "name": "2023",
+            "value": "2023"
+          },
+          {
+            "name": "2022",
+            "value": "2022"
+          },
+          {
+            "name": "2021",
+            "value": "2021"
+          },
+          {
+            "name": "2020",
+            "value": "2020"
+          },
+          {
+            "name": "2019",
+            "value": "2019"
+          },
+          {
+            "name": "2018",
+            "value": "2018"
+          },
+          {
+            "name": "2017",
+            "value": "2017"
+          },
+          {
+            "name": "2016",
+            "value": "2016"
+          },
+          {
+            "name": "2015",
+            "value": "2015"
+          },
+          {
+            "name": "2014",
+            "value": "2014"
+          },
+          {
+            "name": "2013",
+            "value": "2013"
+          },
+          {
+            "name": "2012",
+            "value": "2012"
+          },
+          {
+            "name": "2011",
+            "value": "2011"
+          },
+          {
+            "name": "2010",
+            "value": "2010"
+          },
+          {
+            "name": "2009",
+            "value": "2009"
+          },
+          {
+            "name": "2008",
+            "value": "2008"
+          },
+          {
+            "name": "2006",
+            "value": "2006"
+          },
+          {
+            "name": "2005",
+            "value": "2005"
+          },
+          {
+            "name": "2004",
+            "value": "2004"
+          }
+        ]
+      },
+      {
+        "key": "letter",
+        "name": "字母",
+        "init": "",
+        "value": [
+          {
+            "name": "字母查找",
+            "value": ""
+          },
+          {
+            "name": "A",
+            "value": "A"
+          },
+          {
+            "name": "B",
+            "value": "B"
+          },
+          {
+            "name": "C",
+            "value": "C"
+          },
+          {
+            "name": "D",
+            "value": "D"
+          },
+          {
+            "name": "E",
+            "value": "E"
+          },
+          {
+            "name": "F",
+            "value": "F"
+          },
+          {
+            "name": "G",
+            "value": "G"
+          },
+          {
+            "name": "H",
+            "value": "H"
+          },
+          {
+            "name": "I",
+            "value": "I"
+          },
+          {
+            "name": "J",
+            "value": "J"
+          },
+          {
+            "name": "K",
+            "value": "K"
+          },
+          {
+            "name": "L",
+            "value": "L"
+          },
+          {
+            "name": "M",
+            "value": "M"
+          },
+          {
+            "name": "name",
+            "value": "name"
+          },
+          {
+            "name": "O",
+            "value": "O"
+          },
+          {
+            "name": "P",
+            "value": "P"
+          },
+          {
+            "name": "Q",
+            "value": "Q"
+          },
+          {
+            "name": "R",
+            "value": "R"
+          },
+          {
+            "name": "S",
+            "value": "S"
+          },
+          {
+            "name": "T",
+            "value": "T"
+          },
+          {
+            "name": "U",
+            "value": "U"
+          },
+          {
+            "name": "value",
+            "value": "value"
+          },
+          {
+            "name": "W",
+            "value": "W"
+          },
+          {
+            "name": "X",
+            "value": "X"
+          },
+          {
+            "name": "Y",
+            "value": "Y"
+          },
+          {
+            "name": "Z",
+            "value": "Z"
+          },
+          {
+            "name": "0-9",
+            "value": "0-9"
+          }
+        ]
+      },
+      {
+        "key": "sort",
+        "name": "排序",
+        "init": "",
+        "value": [
+          {
+            "name": "时间排序",
+            "value": ""
+          },
+          {
+            "name": "人气排序",
+            "value": "hits"
+          },
+          {
+            "name": "评分排序",
+            "value": "score"
+          }
+        ]
+      }
+    ],
+    "3": [
+      {
+        "key": "year",
+        "name": "时间",
+        "init": "",
+        "value": [
+          {
+            "name": "全部时间",
+            "value": ""
+          },
+          {
+            "name": "2026",
+            "value": "2026"
+          },
+          {
+            "name": "2025",
+            "value": "2025"
+          },
+          {
+            "name": "2024",
+            "value": "2024"
+          },
+          {
+            "name": "2023",
+            "value": "2023"
+          },
+          {
+            "name": "2022",
+            "value": "2022"
+          },
+          {
+            "name": "2021",
+            "value": "2021"
+          },
+          {
+            "name": "2020",
+            "value": "2020"
+          },
+          {
+            "name": "2019",
+            "value": "2019"
+          },
+          {
+            "name": "2018",
+            "value": "2018"
+          },
+          {
+            "name": "2017",
+            "value": "2017"
+          },
+          {
+            "name": "2016",
+            "value": "2016"
+          },
+          {
+            "name": "2015",
+            "value": "2015"
+          },
+          {
+            "name": "2014",
+            "value": "2014"
+          },
+          {
+            "name": "2013",
+            "value": "2013"
+          },
+          {
+            "name": "2012",
+            "value": "2012"
+          },
+          {
+            "name": "2011",
+            "value": "2011"
+          },
+          {
+            "name": "2010",
+            "value": "2010"
+          },
+          {
+            "name": "2009",
+            "value": "2009"
+          },
+          {
+            "name": "2008",
+            "value": "2008"
+          },
+          {
+            "name": "2006",
+            "value": "2006"
+          },
+          {
+            "name": "2005",
+            "value": "2005"
+          },
+          {
+            "name": "2004",
+            "value": "2004"
+          }
+        ]
+      },
+      {
+        "key": "letter",
+        "name": "字母",
+        "init": "",
+        "value": [
+          {
+            "name": "字母查找",
+            "value": ""
+          },
+          {
+            "name": "A",
+            "value": "A"
+          },
+          {
+            "name": "B",
+            "value": "B"
+          },
+          {
+            "name": "C",
+            "value": "C"
+          },
+          {
+            "name": "D",
+            "value": "D"
+          },
+          {
+            "name": "E",
+            "value": "E"
+          },
+          {
+            "name": "F",
+            "value": "F"
+          },
+          {
+            "name": "G",
+            "value": "G"
+          },
+          {
+            "name": "H",
+            "value": "H"
+          },
+          {
+            "name": "I",
+            "value": "I"
+          },
+          {
+            "name": "J",
+            "value": "J"
+          },
+          {
+            "name": "K",
+            "value": "K"
+          },
+          {
+            "name": "L",
+            "value": "L"
+          },
+          {
+            "name": "M",
+            "value": "M"
+          },
+          {
+            "name": "name",
+            "value": "name"
+          },
+          {
+            "name": "O",
+            "value": "O"
+          },
+          {
+            "name": "P",
+            "value": "P"
+          },
+          {
+            "name": "Q",
+            "value": "Q"
+          },
+          {
+            "name": "R",
+            "value": "R"
+          },
+          {
+            "name": "S",
+            "value": "S"
+          },
+          {
+            "name": "T",
+            "value": "T"
+          },
+          {
+            "name": "U",
+            "value": "U"
+          },
+          {
+            "name": "value",
+            "value": "value"
+          },
+          {
+            "name": "W",
+            "value": "W"
+          },
+          {
+            "name": "X",
+            "value": "X"
+          },
+          {
+            "name": "Y",
+            "value": "Y"
+          },
+          {
+            "name": "Z",
+            "value": "Z"
+          },
+          {
+            "name": "0-9",
+            "value": "0-9"
+          }
+        ]
+      },
+      {
+        "key": "sort",
+        "name": "排序",
+        "init": "",
+        "value": [
+          {
+            "name": "时间排序",
+            "value": ""
+          },
+          {
+            "name": "人气排序",
+            "value": "hits"
+          },
+          {
+            "name": "评分排序",
+            "value": "score"
+          }
+        ]
+      }
+    ],
+    "4": [
+      {
+        "key": "year",
+        "name": "时间",
+        "init": "",
+        "value": [
+          {
+            "name": "全部时间",
+            "value": ""
+          },
+          {
+            "name": "2026",
+            "value": "2026"
+          },
+          {
+            "name": "2025",
+            "value": "2025"
+          },
+          {
+            "name": "2024",
+            "value": "2024"
+          },
+          {
+            "name": "2023",
+            "value": "2023"
+          },
+          {
+            "name": "2022",
+            "value": "2022"
+          },
+          {
+            "name": "2021",
+            "value": "2021"
+          },
+          {
+            "name": "2020",
+            "value": "2020"
+          },
+          {
+            "name": "2019",
+            "value": "2019"
+          },
+          {
+            "name": "2018",
+            "value": "2018"
+          },
+          {
+            "name": "2017",
+            "value": "2017"
+          },
+          {
+            "name": "2016",
+            "value": "2016"
+          },
+          {
+            "name": "2015",
+            "value": "2015"
+          },
+          {
+            "name": "2014",
+            "value": "2014"
+          },
+          {
+            "name": "2013",
+            "value": "2013"
+          },
+          {
+            "name": "2012",
+            "value": "2012"
+          },
+          {
+            "name": "2011",
+            "value": "2011"
+          },
+          {
+            "name": "2010",
+            "value": "2010"
+          },
+          {
+            "name": "2009",
+            "value": "2009"
+          },
+          {
+            "name": "2008",
+            "value": "2008"
+          },
+          {
+            "name": "2006",
+            "value": "2006"
+          },
+          {
+            "name": "2005",
+            "value": "2005"
+          },
+          {
+            "name": "2004",
+            "value": "2004"
+          }
+        ]
+      },
+      {
+        "key": "letter",
+        "name": "字母",
+        "init": "",
+        "value": [
+          {
+            "name": "字母查找",
+            "value": ""
+          },
+          {
+            "name": "A",
+            "value": "A"
+          },
+          {
+            "name": "B",
+            "value": "B"
+          },
+          {
+            "name": "C",
+            "value": "C"
+          },
+          {
+            "name": "D",
+            "value": "D"
+          },
+          {
+            "name": "E",
+            "value": "E"
+          },
+          {
+            "name": "F",
+            "value": "F"
+          },
+          {
+            "name": "G",
+            "value": "G"
+          },
+          {
+            "name": "H",
+            "value": "H"
+          },
+          {
+            "name": "I",
+            "value": "I"
+          },
+          {
+            "name": "J",
+            "value": "J"
+          },
+          {
+            "name": "K",
+            "value": "K"
+          },
+          {
+            "name": "L",
+            "value": "L"
+          },
+          {
+            "name": "M",
+            "value": "M"
+          },
+          {
+            "name": "name",
+            "value": "name"
+          },
+          {
+            "name": "O",
+            "value": "O"
+          },
+          {
+            "name": "P",
+            "value": "P"
+          },
+          {
+            "name": "Q",
+            "value": "Q"
+          },
+          {
+            "name": "R",
+            "value": "R"
+          },
+          {
+            "name": "S",
+            "value": "S"
+          },
+          {
+            "name": "T",
+            "value": "T"
+          },
+          {
+            "name": "U",
+            "value": "U"
+          },
+          {
+            "name": "value",
+            "value": "value"
+          },
+          {
+            "name": "W",
+            "value": "W"
+          },
+          {
+            "name": "X",
+            "value": "X"
+          },
+          {
+            "name": "Y",
+            "value": "Y"
+          },
+          {
+            "name": "Z",
+            "value": "Z"
+          },
+          {
+            "name": "0-9",
+            "value": "0-9"
+          }
+        ]
+      },
+      {
+        "key": "sort",
+        "name": "排序",
+        "init": "",
+        "value": [
+          {
+            "name": "时间排序",
+            "value": ""
+          },
+          {
+            "name": "人气排序",
+            "value": "hits"
+          },
+          {
+            "name": "评分排序",
+            "value": "score"
+          }
+        ]
+      }
+    ],
+    "5": [
+      {
+        "key": "year",
+        "name": "时间",
+        "init": "",
+        "value": [
+          {
+            "name": "全部时间",
+            "value": ""
+          },
+          {
+            "name": "2026",
+            "value": "2026"
+          },
+          {
+            "name": "2025",
+            "value": "2025"
+          },
+          {
+            "name": "2024",
+            "value": "2024"
+          },
+          {
+            "name": "2023",
+            "value": "2023"
+          },
+          {
+            "name": "2022",
+            "value": "2022"
+          },
+          {
+            "name": "2021",
+            "value": "2021"
+          },
+          {
+            "name": "2020",
+            "value": "2020"
+          },
+          {
+            "name": "2019",
+            "value": "2019"
+          },
+          {
+            "name": "2018",
+            "value": "2018"
+          },
+          {
+            "name": "2017",
+            "value": "2017"
+          },
+          {
+            "name": "2016",
+            "value": "2016"
+          },
+          {
+            "name": "2015",
+            "value": "2015"
+          },
+          {
+            "name": "2014",
+            "value": "2014"
+          },
+          {
+            "name": "2013",
+            "value": "2013"
+          },
+          {
+            "name": "2012",
+            "value": "2012"
+          },
+          {
+            "name": "2011",
+            "value": "2011"
+          },
+          {
+            "name": "2010",
+            "value": "2010"
+          },
+          {
+            "name": "2009",
+            "value": "2009"
+          },
+          {
+            "name": "2008",
+            "value": "2008"
+          },
+          {
+            "name": "2007",
+            "value": "2007"
+          },
+          {
+            "name": "2006",
+            "value": "2006"
+          },
+          {
+            "name": "2005",
+            "value": "2005"
+          },
+          {
+            "name": "2004",
+            "value": "2004"
+          }
+        ]
+      },
+      {
+        "key": "letter",
+        "name": "字母",
+        "init": "",
+        "value": [
+          {
+            "name": "字母查找",
+            "value": ""
+          },
+          {
+            "name": "A",
+            "value": "A"
+          },
+          {
+            "name": "B",
+            "value": "B"
+          },
+          {
+            "name": "C",
+            "value": "C"
+          },
+          {
+            "name": "D",
+            "value": "D"
+          },
+          {
+            "name": "E",
+            "value": "E"
+          },
+          {
+            "name": "F",
+            "value": "F"
+          },
+          {
+            "name": "G",
+            "value": "G"
+          },
+          {
+            "name": "H",
+            "value": "H"
+          },
+          {
+            "name": "I",
+            "value": "I"
+          },
+          {
+            "name": "J",
+            "value": "J"
+          },
+          {
+            "name": "K",
+            "value": "K"
+          },
+          {
+            "name": "L",
+            "value": "L"
+          },
+          {
+            "name": "M",
+            "value": "M"
+          },
+          {
+            "name": "name",
+            "value": "name"
+          },
+          {
+            "name": "O",
+            "value": "O"
+          },
+          {
+            "name": "P",
+            "value": "P"
+          },
+          {
+            "name": "Q",
+            "value": "Q"
+          },
+          {
+            "name": "R",
+            "value": "R"
+          },
+          {
+            "name": "S",
+            "value": "S"
+          },
+          {
+            "name": "T",
+            "value": "T"
+          },
+          {
+            "name": "U",
+            "value": "U"
+          },
+          {
+            "name": "value",
+            "value": "value"
+          },
+          {
+            "name": "W",
+            "value": "W"
+          },
+          {
+            "name": "X",
+            "value": "X"
+          },
+          {
+            "name": "Y",
+            "value": "Y"
+          },
+          {
+            "name": "Z",
+            "value": "Z"
+          },
+          {
+            "name": "0-9",
+            "value": "0-9"
+          }
+        ]
+      },
+      {
+        "key": "sort",
+        "name": "排序",
+        "init": "",
+        "value": [
+          {
+            "name": "时间排序",
+            "value": ""
+          },
+          {
+            "name": "人气排序",
+            "value": "hits"
+          },
+          {
+            "name": "评分排序",
+            "value": "score"
+          }
+        ]
+      }
+    ],
+    "6": [
+      {
+        "key": "letter",
+        "name": "字母",
+        "init": "",
+        "value": [
+          {
+            "name": "字母查找",
+            "value": ""
+          },
+          {
+            "name": "A",
+            "value": "A"
+          },
+          {
+            "name": "B",
+            "value": "B"
+          },
+          {
+            "name": "C",
+            "value": "C"
+          },
+          {
+            "name": "D",
+            "value": "D"
+          },
+          {
+            "name": "E",
+            "value": "E"
+          },
+          {
+            "name": "F",
+            "value": "F"
+          },
+          {
+            "name": "G",
+            "value": "G"
+          },
+          {
+            "name": "H",
+            "value": "H"
+          },
+          {
+            "name": "I",
+            "value": "I"
+          },
+          {
+            "name": "J",
+            "value": "J"
+          },
+          {
+            "name": "K",
+            "value": "K"
+          },
+          {
+            "name": "L",
+            "value": "L"
+          },
+          {
+            "name": "M",
+            "value": "M"
+          },
+          {
+            "name": "name",
+            "value": "name"
+          },
+          {
+            "name": "O",
+            "value": "O"
+          },
+          {
+            "name": "P",
+            "value": "P"
+          },
+          {
+            "name": "Q",
+            "value": "Q"
+          },
+          {
+            "name": "R",
+            "value": "R"
+          },
+          {
+            "name": "S",
+            "value": "S"
+          },
+          {
+            "name": "T",
+            "value": "T"
+          },
+          {
+            "name": "U",
+            "value": "U"
+          },
+          {
+            "name": "value",
+            "value": "value"
+          },
+          {
+            "name": "W",
+            "value": "W"
+          },
+          {
+            "name": "X",
+            "value": "X"
+          },
+          {
+            "name": "Y",
+            "value": "Y"
+          },
+          {
+            "name": "Z",
+            "value": "Z"
+          },
+          {
+            "name": "0-9",
+            "value": "0-9"
+          }
+        ]
+      },
+      {
+        "key": "sort",
+        "name": "排序",
+        "init": "",
+        "value": [
+          {
+            "name": "时间排序",
+            "value": ""
+          },
+          {
+            "name": "人气排序",
+            "value": "hits"
+          },
+          {
+            "name": "评分排序",
+            "value": "score"
+          }
+        ]
+      }
+    ],
+    "30": [
+      {
+        "key": "letter",
+        "name": "字母",
+        "init": "",
+        "value": [
+          {
+            "name": "字母查找",
+            "value": ""
+          },
+          {
+            "name": "A",
+            "value": "A"
+          },
+          {
+            "name": "B",
+            "value": "B"
+          },
+          {
+            "name": "C",
+            "value": "C"
+          },
+          {
+            "name": "D",
+            "value": "D"
+          },
+          {
+            "name": "E",
+            "value": "E"
+          },
+          {
+            "name": "F",
+            "value": "F"
+          },
+          {
+            "name": "G",
+            "value": "G"
+          },
+          {
+            "name": "H",
+            "value": "H"
+          },
+          {
+            "name": "I",
+            "value": "I"
+          },
+          {
+            "name": "J",
+            "value": "J"
+          },
+          {
+            "name": "K",
+            "value": "K"
+          },
+          {
+            "name": "L",
+            "value": "L"
+          },
+          {
+            "name": "M",
+            "value": "M"
+          },
+          {
+            "name": "name",
+            "value": "name"
+          },
+          {
+            "name": "O",
+            "value": "O"
+          },
+          {
+            "name": "P",
+            "value": "P"
+          },
+          {
+            "name": "Q",
+            "value": "Q"
+          },
+          {
+            "name": "R",
+            "value": "R"
+          },
+          {
+            "name": "S",
+            "value": "S"
+          },
+          {
+            "name": "T",
+            "value": "T"
+          },
+          {
+            "name": "U",
+            "value": "U"
+          },
+          {
+            "name": "value",
+            "value": "value"
+          },
+          {
+            "name": "W",
+            "value": "W"
+          },
+          {
+            "name": "X",
+            "value": "X"
+          },
+          {
+            "name": "Y",
+            "value": "Y"
+          },
+          {
+            "name": "Z",
+            "value": "Z"
+          },
+          {
+            "name": "0-9",
+            "value": "0-9"
+          }
+        ]
+      },
+      {
+        "key": "sort",
+        "name": "排序",
+        "init": "",
+        "value": [
+          {
+            "name": "时间排序",
+            "value": ""
+          },
+          {
+            "name": "人气排序",
+            "value": "hits"
+          },
+          {
+            "name": "评分排序",
+            "value": "score"
+          }
+        ]
+      }
+    ]
+  };
 }
 
 module.exports = {
