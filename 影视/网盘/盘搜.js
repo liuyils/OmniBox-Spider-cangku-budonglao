@@ -1,7 +1,7 @@
 // @name 盘搜
 // @author 
 // @description 刮削：支持，弹幕：支持，嗅探：支持
-// @version 1.2.0
+// @version 1.2.2
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/网盘/盘搜.js
 /**
  * OmniBox 网盘爬虫脚本
@@ -71,6 +71,8 @@ const DRIVE_TYPE_CONFIG = (process.env.DRIVE_TYPE_CONFIG || "quark;uc").split(';
 const SOURCE_NAMES_CONFIG = (process.env.SOURCE_NAMES_CONFIG || "本地代理;服务端代理;直连").split(';').map((s) => s.trim()).filter(Boolean);
 // 详情页播放线路的网盘排序顺序，仅作用于 detail() 返回的播放线路
 const DRIVE_ORDER = (process.env.DRIVE_ORDER || "baidu;tianyi;quark;uc;115;xunlei;ali;123pan").split(';').map((s) => s.trim().toLowerCase()).filter(Boolean);
+// 详情链路缓存时间（秒），默认 12 小时
+const PANSOU_CACHE_EX_SECONDS = Number(process.env.PANSOU_CACHE_EX_SECONDS || 43200);
 
 // ==================== 配置区域结束 ====================
 
@@ -231,6 +233,27 @@ function formatFileSize(size) {
     return `${Math.floor(sizeFloat)}${units[exp]}`;
   }
   return `${sizeFloat.toFixed(2)}${units[exp]}`;
+}
+
+function buildCacheKey(prefix, value) {
+  return `${prefix}:${value}`;
+}
+
+async function getCachedJSON(key) {
+  try {
+    return await OmniBox.getCache(key);
+  } catch (error) {
+    OmniBox.log("warn", `读取缓存失败: key=${key}, error=${error.message}`);
+    return null;
+  }
+}
+
+async function setCachedJSON(key, value, exSeconds) {
+  try {
+    await OmniBox.setCache(key, value, exSeconds);
+  } catch (error) {
+    OmniBox.log("warn", `写入缓存失败: key=${key}, error=${error.message}`);
+  }
 }
 
 /**
@@ -427,8 +450,14 @@ async function formatDriveSearchResults(data, keyword) {
       if (!shareURL) {
         continue;
       }
-      const driveInfo = await OmniBox.getDriveInfoByShareURL(shareURL);
-      // 构建vod_id：格式为 shareURL|keyword|note
+
+      const driveInfoCacheKey = buildCacheKey("pansou:driveInfo", shareURL);
+      let driveInfo = await getCachedJSON(driveInfoCacheKey);
+      if (!driveInfo) {
+        driveInfo = await OmniBox.getDriveInfoByShareURL(shareURL);
+        await setCachedJSON(driveInfoCacheKey, driveInfo, PANSOU_CACHE_EX_SECONDS);
+      }
+
       const vodId = `${shareURL}|${keyword || ""}|${note}`;
 
       // 构建vod_name：优先使用note，如果没有则使用URL
@@ -978,11 +1007,35 @@ async function detail(params) {
 
     OmniBox.log("info", `解析参数: shareURL=${shareURL}, keyword=${keyword}, note=${note}`);
 
-    // 并行获取网盘信息与根目录文件列表
-    const [driveInfo, fileList] = await Promise.all([
-      OmniBox.getDriveInfoByShareURL(shareURL),
-      OmniBox.getDriveFileList(shareURL, "0"),
+    const driveInfoCacheKey = buildCacheKey("pansou:driveInfo", shareURL);
+    const rootFilesCacheKey = buildCacheKey("pansou:rootFiles", shareURL);
+    const videoFilesCacheKey = buildCacheKey("pansou:videoFiles", shareURL);
+
+    const [cachedDriveInfo, cachedRootFiles, cachedVideoFiles] = await Promise.all([
+      getCachedJSON(driveInfoCacheKey),
+      getCachedJSON(rootFilesCacheKey),
+      getCachedJSON(videoFilesCacheKey),
     ]);
+
+    let driveInfo = cachedDriveInfo;
+    let fileList = cachedRootFiles;
+
+    if (!driveInfo || !fileList) {
+      const results = await Promise.all([
+        driveInfo ? Promise.resolve(driveInfo) : OmniBox.getDriveInfoByShareURL(shareURL),
+        fileList ? Promise.resolve(fileList) : OmniBox.getDriveFileList(shareURL, "0"),
+      ]);
+      driveInfo = results[0];
+      fileList = results[1];
+
+      if (!cachedDriveInfo && driveInfo) {
+        await setCachedJSON(driveInfoCacheKey, driveInfo, PANSOU_CACHE_EX_SECONDS);
+      }
+      if (!cachedRootFiles && fileList) {
+        await setCachedJSON(rootFilesCacheKey, fileList, PANSOU_CACHE_EX_SECONDS);
+      }
+    }
+
     const displayName = driveInfo.displayName;
 
     if (!fileList || !fileList.files || !Array.isArray(fileList.files)) {
@@ -991,8 +1044,16 @@ async function detail(params) {
 
     OmniBox.log("info", `获取文件列表成功，文件数量: ${fileList.files.length}`);
 
-    // 递归获取所有视频文件
-    const allVideoFiles = await getAllVideoFiles(shareURL, fileList.files, "0");
+    // 递归获取所有视频文件（优先走缓存）
+    let allVideoFiles = cachedVideoFiles;
+    if (!Array.isArray(allVideoFiles) || allVideoFiles.length === 0) {
+      allVideoFiles = await getAllVideoFiles(shareURL, fileList.files, "0");
+      if (Array.isArray(allVideoFiles) && allVideoFiles.length > 0) {
+        await setCachedJSON(videoFilesCacheKey, allVideoFiles, PANSOU_CACHE_EX_SECONDS);
+      }
+    } else {
+      OmniBox.log("info", `命中视频文件缓存: ${shareURL}, 数量: ${allVideoFiles.length}`);
+    }
 
     if (allVideoFiles.length === 0) {
       throw new Error("未找到视频文件");
