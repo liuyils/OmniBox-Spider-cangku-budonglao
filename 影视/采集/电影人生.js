@@ -234,7 +234,13 @@ async function detail(params, context) {
           const fullUrl = absUrl(href.replace(/&amp;/g, "&"));
           episodes.push({
             name: title,
-            playId: JSON.stringify({ title, origin, page: fullUrl }),
+            playId: JSON.stringify({
+              title,
+              origin,
+              page: fullUrl,
+              vodName: vod_name,
+              pic: vod_pic,
+            }),
           });
         });
         if (episodes.length) {
@@ -348,6 +354,41 @@ async function play(params, context) {
       } catch (e) {
         await OmniBox.log("warn", `[电影人生][play] 探测重定向失败: ${e.message}`);
       }
+
+      Promise.resolve().then(async () => {
+        let totalDuration;
+        try {
+          await OmniBox.log("info", `[电影人生][play] 准备探测媒体信息并写入播放记录 title=${meta.title || ""}, origin=${origin}, finalUrl=${finalUrl}`);
+          const mediaInfo = await OmniBox.getVideoMediaInfo(finalUrl, headers);
+          const duration = Number(mediaInfo?.format?.duration || 0);
+          if (Number.isFinite(duration) && duration > 0) {
+            totalDuration = Math.round(duration);
+          }
+          await OmniBox.log("info", `[电影人生][play] 媒体信息探测完成 totalDuration=${totalDuration || 0}`);
+        } catch (error) {
+          await OmniBox.log("warn", `[电影人生][play] 获取媒体时长失败: ${error?.message || String(error)}`);
+        }
+
+        try {
+          const historyPayload = {
+            vodId: safePageUrl || finalUrl,
+            title: meta.vodName || meta.title || origin || "电影人生",
+            episode: safePageUrl || finalUrl,
+            episodeName: meta.title || undefined,
+            pic: meta.pic || undefined,
+            playUrl: finalUrl,
+            playHeader: headers,
+            totalDuration,
+          };
+          await OmniBox.log("info", `[电影人生][play] 准备写入观看记录 vodId=${historyPayload.vodId}, episodeName=${historyPayload.episodeName || ""}`);
+          await OmniBox.addPlayHistory(historyPayload);
+          await OmniBox.log("info", `[电影人生][play] 观看记录写入完成 vodId=${historyPayload.vodId}`);
+        } catch (error) {
+          await OmniBox.log("warn", `[电影人生][play] 写入观看记录失败: ${error?.message || String(error)}`);
+        }
+      }).catch(async (error) => {
+        await OmniBox.log("warn", `[电影人生][play] 异步播放记录任务异常: ${error?.message || String(error)}`);
+      });
 
       const result = {
         parse: 0,
