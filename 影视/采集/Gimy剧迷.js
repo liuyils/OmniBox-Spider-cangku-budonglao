@@ -2,7 +2,7 @@
 // @author 梦
 // @description 影视站：Gimy / gimy.now / gimyai.tw，支持首页、分类、详情、搜索与播放页嗅探
 // @dependencies cheerio
-// @version 1.0.3
+// @version 1.0.4
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/Gimy剧迷.js
 
 const OmniBox = require("omnibox_sdk");
@@ -138,12 +138,17 @@ function extractCards($) {
     if (!title) return;
 
     const pic = absUrl(
-      $el.find("img").attr("data-original")
+      $el.attr("data-original")
+      || $el.attr("data-src")
+      || $el.attr("data-bg")
+      || $el.find("img").attr("data-original")
       || $el.find("img").attr("data-src")
       || $el.find("img").attr("src")
-      || $el.closest(".module-item, li, .public-list-box, .video-item, .item").find("img").first().attr("data-original")
-      || $el.closest(".module-item, li, .public-list-box, .video-item, .item").find("img").first().attr("data-src")
-      || $el.closest(".module-item, li, .public-list-box, .video-item, .item").find("img").first().attr("src")
+      || $el.closest(".module-item, li, .public-list-box, .video-item, .item, .col-md-2, .col-sm-3, .col-xs-4").find("a.video-pic").first().attr("data-original")
+      || $el.closest(".module-item, li, .public-list-box, .video-item, .item, .col-md-2, .col-sm-3, .col-xs-4").find("a.video-pic").first().attr("data-src")
+      || $el.closest(".module-item, li, .public-list-box, .video-item, .item, .col-md-2, .col-sm-3, .col-xs-4").find("img").first().attr("data-original")
+      || $el.closest(".module-item, li, .public-list-box, .video-item, .item, .col-md-2, .col-sm-3, .col-xs-4").find("img").first().attr("data-src")
+      || $el.closest(".module-item, li, .public-list-box, .video-item, .item, .col-md-2, .col-sm-3, .col-xs-4").find("img").first().attr("src")
       || ""
     );
     const parentHtml = $el.closest("li, .module-item, .public-list-box, .video-item, .item, .module-poster-item, .myui-vodlist__box").html() || $el.parent().html() || "";
