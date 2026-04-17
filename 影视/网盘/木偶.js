@@ -2,7 +2,7 @@
 // @author
 // @description 刮削：支持，弹幕：支持，嗅探：支持
 // @dependencies: axios, cheerio
-// @version 1.2.9
+// @version 1.2.10
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/网盘/木偶.js
 
 // 引入 OmniBox SDK
@@ -211,7 +211,6 @@ function isBlockedHtml(body = "") {
   return (
     lower.includes("just a moment") ||
     lower.includes("cf-browser-verification") ||
-    lower.includes("cloudflare") ||
     lower.includes("captcha") ||
     lower.includes("访问验证")
   );
