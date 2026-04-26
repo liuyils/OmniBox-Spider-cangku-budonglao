@@ -2,7 +2,7 @@
 // @author 梦
 // @description 站点搜索 + 网盘资源解析（夸克/百度/迅雷等），支持网盘目录展开、刮削、弹幕、观看记录
 // @dependencies: axios
-// @version 1.2.3
+// @version 1.2.4
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/网盘/聚盘搜索.js
 
 
