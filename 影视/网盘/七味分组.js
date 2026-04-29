@@ -2,7 +2,7 @@
 // @author https://github.com/hjdhnx/drpy-node/blob/main/spider/js/%E4%B8%83%E5%91%B3%5B%E4%BC%98%5D.js
 // @description 刮削：支持，弹幕：支持，嗅探：支持，仅保留七味网盘线路的分组版本
 // @dependencies: axios, cheerio
-// @version      1.4.0
+// @version      1.4.1
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/网盘/七味分组.js
 
 const axios = require("axios");
@@ -1419,7 +1419,27 @@ function buildPanGroupDirectoryCacheKey(videoId = "") {
 }
 
 function buildShareNameCacheKey(shareURL = "") {
-    return buildCacheKey(`qiwei-group:shareName:${QIWEI_PAN_CACHE_VERSION}`, normalizeShareUrl(shareURL));
+    const normalizedShareURL = normalizeShareUrl(shareURL);
+    const driveType = normalizeDriveType(inferDriveTypeFromShareURL(normalizedShareURL) || "unknown");
+    let compactValue = normalizedShareURL;
+
+    if (driveType === "baidu") {
+        try {
+            const parsed = new URL(normalizedShareURL);
+            const pwd = parsed.searchParams.get("pwd") || "";
+            const path = String(parsed.pathname || "").trim();
+            compactValue = `baidu:${path}${pwd ? `?pwd=${pwd}` : ""}`;
+        } catch {
+            compactValue = normalizedShareURL;
+        }
+    } else {
+        const shareId = extractPanShareId(normalizedShareURL);
+        if (shareId) {
+            compactValue = `${driveType}:${shareId}`;
+        }
+    }
+
+    return buildCacheKey(`qiwei-group:shareName:${QIWEI_PAN_CACHE_VERSION}`, compactValue);
 }
 
 function encodePanFolderMeta(meta = {}) {
