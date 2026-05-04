@@ -2,7 +2,7 @@
 // @author lampon
 // @description
 // @dependencies axios
-// @version 1.1.13
+// @version 1.1.14
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/网盘/影巢.js
 
 const OmniBox = require("omnibox_sdk");
@@ -44,7 +44,7 @@ const HDHIVE_API_KEY = process.env.HDHIVE_API_KEY || "";
 // 公共上游 HTTP 代理（可选，TMDB / HDHive 共用；示例：http://127.0.0.1:7890）
 const UPSTREAM_HTTP_PROXY_URL = process.env.UPSTREAM_HTTP_PROXY_URL || process.env.HTTP_PROXY_URL || "";
 // 兼容旧变量：若未配置公共代理，则 HDHive 仍可单独使用旧的 HDHIVE_PROXY_URL
-const HDHIVE_PROXY_URL = process.env.HDHIVE_PROXY_URL || "";
+const HDHIVE_PROXY_URL = process.env.HDHIVE_PROXY_URL || UPSTREAM_HTTP_PROXY_URL || "";
 // PanCheck 配置（可选）
 const PANCHECK_API = process.env.PANCHECK_API || "";
 const PANCHECK_ENABLED = true;
@@ -324,7 +324,7 @@ function buildLanguageNames(scrapeData, limit = 3) {
 }
 
 function getSharedProxyUrl() {
-  return safeString(UPSTREAM_HTTP_PROXY_URL || HDHIVE_PROXY_URL).trim();
+  return safeString(UPSTREAM_HTTP_PROXY_URL).trim();
 }
 
 function buildAxiosProxyConfig(proxyUrl, logLabel = "上游") {
