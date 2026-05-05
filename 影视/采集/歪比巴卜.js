@@ -6,13 +6,11 @@
  * @searchable 1
  * @quickSearch 1
  * @changeable 0
- * @version 1.0.0
+ * @version 1.0.1
  * @downloadURL https://github.com/Silent1566/OmniBox-Spider/raw/main/影视/采集/歪比巴卜.js
  */
 
-const OmniBox = require('omnibox_sdk');
 const runner = require('spider_runner');
-
 const axios = require('axios');
 const http = require('http');
 const https = require('https');
@@ -93,7 +91,7 @@ function absUrl(url = '') {
 
 function normalizeVodFromCard(block) {
   const vod_id = pickMatch(block, /href="\/detail\/(\d+)\.html"/, 1, '');
-  const vod_name = stripTags(pickMatch(block, /<div class="module-(?:poster-item-title|card-item-title)>([\s\S]*?)<\/div>/, 1, '')) || pickMatch(block, /alt="([^"]+)"/, 1, '');
+  const vod_name = stripTags(pickMatch(block, /<div class="module-(?:poster-item-title|card-item-title)">([\s\S]*?)<\/div>/, 1, '')) || pickMatch(block, /alt="([^"]+)"/, 1, '');
   const vod_pic = absUrl(pickMatch(block, /(?:data-original|data-src|src)="([^"]+)"/, 1, ''));
   const vod_remarks = stripTags(pickMatch(block, /<div class="module-item-note">([\s\S]*?)<\/div>/, 1, ''));
   return { vod_id, vod_name, vod_pic, vod_remarks };
@@ -113,6 +111,7 @@ function parseCards(html) {
     });
   }
   if (list.length) return list;
+
   const reg2 = /<div class="module-card-item module-item">([\s\S]*?)<\/div>\s*<\/div>/g;
   while ((m = reg2.exec(html)) !== null) {
     const vod = normalizeVodFromCard(m[1]);
@@ -155,7 +154,9 @@ function parsePlayGroups(detailHtml) {
     }
     if (items.length) groups.push(items);
   }
+
   if (groups.length) return groups;
+
   const hrefOnly = [...detailHtml.matchAll(/<a[^>]+href="([^\"]*\/(?:vplay|play)\/[^\"#]+)"[^>]*>([\s\S]*?)<\/a>/g)];
   if (hrefOnly.length) {
     return [hrefOnly.map((mm) => `${stripTags(mm[2]).trim() || '播放'}$${absUrl(mm[1])}`)];
@@ -281,23 +282,42 @@ async function resolveWbbbPlayerUrl(playerToken, nextUrl, title) {
   return { url: payload.url, type: payload.type || '' };
 }
 
-class WbbbSpider extends OmniBox.Spider {
-  async home() {
-    return { class: CATS, list: [] };
+async function home(params = {}) {
+  try {
+    const html = await getHtml('/');
+    const list = parseCards(html).slice(0, 40);
+    return { class: CATS, list };
+  } catch (e) {
+    return { class: CATS, list: [], error: e.message || String(e) };
   }
+}
 
-  async category({ id, page }) {
-    const pg = parseInt(page || '1', 10) || 1;
-    const path = pg > 1 ? `/show/${id}--------${pg}---.html` : `/show/${id}-----------.html`;
+async function category(params = {}) {
+  try {
+    const id = params.id || params.t || params.type_id || params.categoryId || '1';
+    const page = parseInt(params.page || params.pg || '1', 10) || 1;
+    const path = page > 1 ? `/show/${id}--------${page}---.html` : `/show/${id}-----------.html`;
     const html = await getHtml(path);
     const list = parseCards(html);
     const hasNext = html.includes('title="下一页"');
-    return { list, page: pg, pagecount: hasNext ? pg + 1 : pg, total: list.length };
+    return { list, page, pagecount: hasNext ? page + 1 : page, total: list.length };
+  } catch (e) {
+    const page = parseInt(params.page || params.pg || '1', 10) || 1;
+    return { list: [], page, pagecount: page, total: 0, error: e.message || String(e) };
   }
+}
 
-  async detail({ id }) {
+async function detail(params = {}) {
+  try {
+    let ids = [];
+    if (Array.isArray(params.id)) ids = params.id;
+    else if (Array.isArray(params.ids)) ids = params.ids;
+    else if (params.ids) ids = String(params.ids).split(',').map((s) => s.trim()).filter(Boolean);
+    else if (params.id) ids = String(params.id).split(',').map((s) => s.trim()).filter(Boolean);
+    else if (params.vod_id) ids = String(params.vod_id).split(',').map((s) => s.trim()).filter(Boolean);
+
     const list = [];
-    for (const rawId of id) {
+    for (const rawId of ids) {
       const mediaId = String(rawId).trim();
       const html = await getHtml(`/detail/${mediaId}.html`);
       const vod_name = stripTags(pickMatch(html, /<h1[^>]*>([\s\S]*?)<\/h1>/, 1, ''));
@@ -339,21 +359,33 @@ class WbbbSpider extends OmniBox.Spider {
       });
     }
     return { list };
+  } catch (e) {
+    return { list: [], error: e.message || String(e) };
   }
+}
 
-  async search({ page, wd }) {
-    const pg = parseInt(page || '1', 10) || 1;
-    const path = pg > 1 ? `/search/-------------.html?wd=${encodeURIComponent(wd)}&page=${pg}` : `/search/-------------.html?wd=${encodeURIComponent(wd)}`;
+async function search(params = {}) {
+  try {
+    const wd = params.wd || params.keyword || params.key || '';
+    const page = parseInt(params.page || params.pg || '1', 10) || 1;
+    if (!wd) return { list: [], page, pagecount: page, total: 0 };
+    const path = page > 1 ? `/search/-------------.html?wd=${encodeURIComponent(wd)}&page=${page}` : `/search/-------------.html?wd=${encodeURIComponent(wd)}`;
     const html = await getHtml(path);
     const list = parseCards(html);
-    return { list, page: pg, pagecount: list.length >= 20 ? pg + 1 : pg, total: list.length };
+    return { list, page, pagecount: list.length >= 20 ? page + 1 : page, total: list.length };
+  } catch (e) {
+    const page = parseInt(params.page || params.pg || '1', 10) || 1;
+    return { list: [], page, pagecount: page, total: 0, error: e.message || String(e) };
   }
+}
 
-  async play({ id }) {
+async function play(params = {}) {
+  const id = params.id || params.play || params.playId || params.url;
+  try {
     const html = await getHtml(id);
     const player = parsePlayer(html);
     if (!player) return { parse: 1, jx: 1, url: id };
-    let url = decodePlayUrl(player.url, player.encrypt);
+    const url = decodePlayUrl(player.url, player.encrypt);
     const from = String(player.from || '').trim();
     const nextUrl = player.link_next ? absUrl(player.link_next) : '';
     const title = player.vod_data && player.vod_data.vod_name ? String(player.vod_data.vod_name) : '';
@@ -371,35 +403,11 @@ class WbbbSpider extends OmniBox.Spider {
         return { parse: 0, jx: 0, url: resolved.url, header: { 'User-Agent': SITE.ua, 'Referer': `${SITE.host}/` } };
       }
     } catch (_) {}
-    const parseCandidates = [
-      '/static/js/playerconfig.js',
-      `/static/player/${from}.js`,
-      `/static/player/config.js`,
-      '/js/playerconfig.js',
-      '/player/config.js',
-    ];
-    for (const p of parseCandidates) {
-      try {
-        const conf = await getHtml(p);
-        const escapedFrom = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regs = [
-          new RegExp(`player_list\\s*\\[\\s*['\"]${escapedFrom}['\"]\\s*\\]\\s*=\\s*\\{[\\s\\S]*?parse\\s*:\\s*['\"]([^'\"]+)['\"]`, 'i'),
-          new RegExp(`${escapedFrom}[\\s\\S]*?parse\\s*[:=]\\s*['\"]([^'\"]+)['\"]`, 'i'),
-          new RegExp(`"${escapedFrom}"\\s*:\\s*\\{[\\s\\S]*?"parse"\\s*:\\s*"([^\"]*)"`, 'i'),
-          /MacPlayerConfig[\s\S]*?parse['"]?\s*[:=]\s*['"]([^'\"]+)['"]/i,
-        ];
-        for (const reg of regs) {
-          const m = conf.match(reg);
-          if (!m || typeof m[1] !== 'string') continue;
-          const prefix = m[1].trim();
-          if (!prefix) continue;
-          const jump = /^https?:\/\//i.test(prefix) ? `${prefix}${encodeURIComponent(url)}` : absUrl(`${prefix}${encodeURIComponent(url)}`);
-          return { parse: 0, jx: 0, url: jump, header: { 'User-Agent': SITE.ua, 'Referer': `${SITE.host}/` } };
-        }
-      } catch (_) {}
-    }
     return { parse: 1, jx: 1, url, header: { 'User-Agent': SITE.ua, 'Referer': `${SITE.host}/` } };
+  } catch (e) {
+    return { parse: 1, jx: 1, url: id, error: e.message || String(e) };
   }
 }
 
-runner.run(new WbbbSpider());
+module.exports = { home, category, detail, search, play };
+runner.run(module.exports);
